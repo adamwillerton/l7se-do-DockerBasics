@@ -1,6 +1,6 @@
 # l7se-do-DockerBasics
 
 
-* DockerFile: creates a Docker image containing nginx (web server) + files from the 'website' folder.
+* DockerFile: creates a Docker image using the official NGINX image.  Website files are copied into the html folder in the Docker image.
 
-* .dockerignore - stops unnecessary repository files being included in the Docker build context.
+
