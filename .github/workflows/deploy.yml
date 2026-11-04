@@ -20,7 +20,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::445307589924:role/GitHubActionsECRRole
+          role-to-assume: arn:aws:iam::445307589924:role/GitHubActionsDeployRole
           aws-region: eu-west-1
 
       - name: Deploy infrastructure
