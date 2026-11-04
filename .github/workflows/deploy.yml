@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Deploy Container to AWS
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   id-token: write
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -23,6 +23,22 @@ jobs:
           role-to-assume: arn:aws:iam::445307589924:role/GitHubActionsECRRole
           aws-region: eu-west-1
 
+      - name: Deploy infrastructure
+        run: |
+          aws cloudformation deploy \
+            --template-file infrastructure.yml \
+            --stack-name docker-website \
+            --capabilities CAPABILITY_IAM
+
+      - name: Get EC2 address
+        run: |
+          EC2_HOST=$(aws cloudformation describe-stacks \
+            --stack-name docker-website \
+            --query "Stacks[0].Outputs[?OutputKey=='PublicDNS'].OutputValue" \
+            --output text)
+
+          echo "EC2_HOST=$EC2_HOST" >> "$GITHUB_ENV"
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
@@ -33,5 +49,58 @@ jobs:
           ECR_REPOSITORY: my-webapp
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker build \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
+
+          docker push \
+            "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            >> "$GITHUB_ENV"
+
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/vockey.pem
+          chmod 600 ~/.ssh/vockey.pem
+
+      - name: Wait for EC2 SSH
+        run: |
+          until ssh \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=5 \
+            -i ~/.ssh/vockey.pem \
+            ec2-user@"$EC2_HOST" "echo ready"
+          do
+            echo "Waiting for EC2..."
+            sleep 10
+          done
+
+      - name: Deploy container to EC2
+        run: |
+          ssh \
+            -o StrictHostKeyChecking=no \
+            -i ~/.ssh/vockey.pem \
+            ec2-user@"$EC2_HOST" << EOF
+
+          aws ecr get-login-password --region eu-west-1 \
+            | sudo docker login \
+                --username AWS \
+                --password-stdin \
+                ${{ steps.login-ecr.outputs.registry }}
+
+          sudo docker pull "$IMAGE_URI"
+
+          sudo docker rm -f my-webapp || true
+
+          sudo docker run \
+            -d \
+            --name my-webapp \
+            --restart unless-stopped \
+            -p 80:80 \
+            "$IMAGE_URI"
+          EOF
+
+      - name: Show website address
+        run: |
+          echo "Website: http://$EC2_HOST"
