@@ -5,7 +5,7 @@ Resources:
   WebSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow web and SSH traffic
+      GroupDescription: Allow HTTP and SSH
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
@@ -29,6 +29,7 @@ Resources:
                 - ec2.amazonaws.com
             Action:
               - sts:AssumeRole
+
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
 
@@ -57,7 +58,6 @@ Resources:
           #!/bin/bash
           dnf install -y docker
           systemctl enable --now docker
-          usermod -aG docker ec2-user
 
       Tags:
         - Key: Name
