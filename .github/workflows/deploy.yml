@@ -1,4 +1,4 @@
-name: Deploy Container to AWS
+name: Deploy Container to EC2
 
 on:
   push:
@@ -28,7 +28,8 @@ jobs:
           aws cloudformation deploy \
             --template-file infrastructure.yml \
             --stack-name docker-website \
-            --capabilities CAPABILITY_IAM
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset
 
       - name: Get EC2 address
         run: |
@@ -43,54 +44,51 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push image
+      - name: Build and push Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: my-webapp
           IMAGE_TAG: latest
         run: |
-          docker build \
-            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
-          docker push \
-            "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
 
-          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
-            >> "$GITHUB_ENV"
+          echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_ENV"
+          echo "ECR_REGISTRY=$ECR_REGISTRY" >> "$GITHUB_ENV"
 
       - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/vockey.pem
+          printf '%s\n' "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/vockey.pem
           chmod 600 ~/.ssh/vockey.pem
 
-      - name: Wait for EC2 SSH
+      - name: Wait for EC2
         run: |
           until ssh \
             -o StrictHostKeyChecking=no \
             -o ConnectTimeout=5 \
             -i ~/.ssh/vockey.pem \
-            ec2-user@"$EC2_HOST" "echo ready"
+            ec2-user@"$EC2_HOST" "sudo docker info"
           do
-            echo "Waiting for EC2..."
+            echo "Waiting for EC2 and Docker..."
             sleep 10
           done
 
-      - name: Deploy container to EC2
+      - name: Run container on EC2
         run: |
           ssh \
             -o StrictHostKeyChecking=no \
             -i ~/.ssh/vockey.pem \
             ec2-user@"$EC2_HOST" << EOF
-
           aws ecr get-login-password --region eu-west-1 \
             | sudo docker login \
                 --username AWS \
                 --password-stdin \
-                ${{ steps.login-ecr.outputs.registry }}
+                "$ECR_REGISTRY"
 
           sudo docker pull "$IMAGE_URI"
-
           sudo docker rm -f my-webapp || true
 
           sudo docker run \
@@ -101,6 +99,6 @@ jobs:
             "$IMAGE_URI"
           EOF
 
-      - name: Show website address
+      - name: Display website address
         run: |
           echo "Website: http://$EC2_HOST"
