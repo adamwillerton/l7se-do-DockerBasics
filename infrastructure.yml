@@ -5,11 +5,16 @@ Resources:
   WebSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow HTTP traffic
+      GroupDescription: Allow web and SSH traffic
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
           CidrIp: 0.0.0.0/0
 
   EC2Role:
@@ -37,6 +42,7 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.micro
+      KeyName: vockey
 
       ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
 
@@ -50,8 +56,8 @@ Resources:
         Fn::Base64: |
           #!/bin/bash
           dnf install -y docker
-          systemctl enable docker
-          systemctl start docker
+          systemctl enable --now docker
+          usermod -aG docker ec2-user
 
       Tags:
         - Key: Name
@@ -59,5 +65,5 @@ Resources:
 
 Outputs:
 
-  PublicIP:
-    Value: !GetAtt WebServer.PublicIp
+  PublicDNS:
+    Value: !GetAtt WebServer.PublicDnsName
